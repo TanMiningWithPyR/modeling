@@ -1,0 +1,153 @@
+---
+title: "4.Decision Tree"
+author: "Affluence Tan"
+date: "January 4, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 简单理解决策树
+
+###决策树的基本概念
+
+决策树顾名思义就像一颗树，一颗树有根，枝，叶。所以，决策树也有根决策节点，（枝）决策节点，叶节点。其中枝决策节点这名字是我自己取的。叶节点为什么不叫叶决策节点呢？因为到了叶节点就已经分出类了，不需要再做决策了。
+
+```{r eval=TRUE,echo=FALSE,message=FALSE,warning=FALSE}
+library(party)
+```
+```{r eval=TRUE,echo=FALSE}
+# Create the input data frame.
+input.dat <- readingSkills[c(1:105),]
+# Create the tree.
+  output.tree <- ctree(
+  nativeSpeaker ~ age + shoeSize + score, 
+  data =  input.dat)
+# Plot the tree.
+plot(output.tree)
+```
+
+如上图就是一个决策树，一共有7个节点。其中节点1是根决策节点，节点2,3是（枝）决策节点，节点4,5,6,7是是叶节点。
+
+###选择最佳的分割
+
+建立决策树的第一个任务是要确定根据哪个特征（也就是自变量）就行分割。一般来说，选择能产生最大的信息增益的特征进行分割。下面解释什么是信息增益。
+
+####信息熵
+信息熵这个词是C．E．香农从热力学中借用过来的。热力学中的热熵是表示分子状态混乱程度的物理量。香农用信息熵的概念来描述信源的不确定度。公式为：
+
+$Entropy(S)=\sum_{i=1}^c-p_ilog_2(p_i)$
+
+其中$S$代表数据的分割，比如一群信用卡卡主，有违约和不违约，$c=2$的分割。$p_i$为样本落入对应分割 $i$ 的比例（概率），如果违约的是50%，不违约当然也是50%。那么信息熵为：
+
+$Entropy(DefaultOrNot)=-0.5 \times log_2(0.5) - 0.5 \times log_2(0.5)=1$
+
+我们可以考察有两个类的分割的所有可能的熵，如下图。可以看到，熵总是在0到1之间，0代表信息纯度高，也就是信息内容多，意义明确。在本例中，如果一个人的违约率为100%或0%，那么也就意味着我们知道了这个人是否违约，很显然，比起50%的概率，信息的不确定性低了。
+
+```{r eval=TRUE,echo=FALSE}
+curve(-x*log2(x)-(1-x)*log2(1-x),col="red",xlab = "Default rate",ylab="Entropy",lwd=4)
+```
+
+当按某个特征$F$分了$d$类以后，比如说，特征$F$为卡主的年薪，有$d=2$的特征类，年薪分别为>500K和<=500K，分别占样本数的20%和80%。违约率分别为40%和52.5%(注意违约率一定满足$0.525 \times 0.8 + 0.2 \times 0.4 = 0.5$)，那么对于$F_j$的熵为：
+
+$Entropy(F_j)=\sum_{i=1}^c-p_{ij}log_2(p_{ij})$，其中：
+
+* $F_j$为第$j$个特征类，这里有两个，为年薪>500K和<=500K
+* $p_{ij}$为第$j$个特征类中样本落入的第$i$个分割的概率
+
+```{r caculate Entropy F}
+# Entropy(F1) card owner of annual salary >500k
+Entropy_f1 <- -0.4 * log2(0.4) - (1-0.4) * log2(1-0.4)
+# Entropy(F2) card owner of annual salary <=500k
+Entropy_f2 <- -0.525 * log2(0.525) - (1-0.525) * log2(1-0.525)
+```
+$Entropy(S_2)=\sum_{j=1}^d{w_j}Entropy(F_j)$，其中：
+$w_j$为第$j$个特征类占总样本的比例
+```{r caculate Entropy S2}
+# Entropy(S1) based on feature F (annual salary)
+entropy_s2 <- 0.2 * Entropy_f1 + 0.8 * Entropy_f2
+entropy_s2
+```
+
+####信息增益
+
+$InfoGain(F)=Entropy(S)-Entropy(S_2) = 1 - 0.9927468 = 0.0072532$
+
+###修剪决策树
+
+一棵树可以无限制的增长下去，选择需要分割的特征，知道每个样本都归于一类，当然这样也就**过拟合**了。所以要修剪。
+
+####提前停止法
+
+一旦树达到了一定数量的决策，或者决策点只有少量案例，就停止增长。
+
+####后剪枝法
+
+如果树生长的过大，根据节点处的错误率修剪让树的大小合适。我们要用的C5.0就是用这种方法。
+
+## R实战
+
+### 获取数据集
+
+我将继续使用Naive Bayes用过的数据集audit，要预测的是income这个变量。
+```{r read dataset}
+library(readr)
+adult <- read_csv("adult.csv",na="?")
+adult$income = as.factor(adult$income)
+str(adult)
+```
+
+### 探索和准备数据集
+在学习NB分类的时候已经探索过了，通过画直方图我们看出了capital_gain这个变量对预测很重要。在这一章可以看到，决策树可以自动帮我们分析出这个结论。这个是它的优点。
+```{r explore and prapare data}
+# create training and test data
+adult_train <- adult[1:21000, ]
+adult_test <- adult[21001:32561, ]
+```
+
+### 基于数据集训练模型
+```{r message=FALSE,warning=FALSE}
+# load the "C50" library
+library(C50)
+adult_classifier <- C5.0(income ~ ., data = adult_train)
+adult_classifier
+adult_predictions <- predict(adult_classifier, adult_test[,-15])
+```
+可以看到，有74个决策节点。
+
+### 评估模型性能
+```{r warning=FALSE}
+
+# load the "gmodels" library
+library(gmodels)
+# Create the cross tabulation of predicted vs. actual
+CrossTable(x = adult_test$income, y = adult_predictions,
+           prop.chisq=FALSE)
+```
+模型的准确度为0.707+0.163 =0.87，如果你还记得NB分类的值，没错，0.791！，那是好上了太多。 而且在收入大于50K的人群中，有66.4%的人被挑选出来了。这是一个巨大的提升，我上次改进以后的模型也没有这么高。
+```{r warning=FALSE}
+#summary model
+summary(adult_classifier)
+```
+最下面输出了Attribute usage，我上次分析出fnlwgt变量对model的预测没什么用，所以懒的类别化了，这里给出了结论。这个列表里面还有很多信息，可以慢慢琢磨。
+
+### 提高模型的性能
+
+C5.0算法对于C4.5有一个改进就是添加了一种自适应增加（adaptive boosting）算法。所谓的boosting就是把多种算法的优势组合起来。在C50函数中添加参数trials=10就可以了。
+```{r improve modeling}
+adult_classifier <- C5.0(income ~ ., data = adult_train, trials = 10)
+adult_classifier
+adult_predictions <- predict(adult_classifier, adult_test[,-15])
+CrossTable(x = adult_test$income, y = adult_predictions,
+           prop.chisq=FALSE)
+```
+额，结局有点打脸，模型性能反而降低了，主要是之前的性能已经很好了啦。
+
+## 小结
+
+决策树的优点很明显，比如它可以高度自动化的处理数值型和名义型变量，还有缺失值也可以。而且模型解释起来也比较容易，一下就能够看懂。
+缺点就不那么明显，比如容易过拟合或欠拟合，大特征的时候有偏等。
+
+总的来说，这是一个应用广泛的模型。

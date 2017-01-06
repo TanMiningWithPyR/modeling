@@ -1,0 +1,76 @@
+---
+title: "2.kmean聚类"
+author: "Affluence Tan"
+date: "December 30, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 简单理解聚类
+
+聚类是一种无监督学习，你不必提前知道被划分的组是什么样的，甚至可能不知道你能找到什么，所以，聚类是用来发现而不是预测。
+
+### 什么是K均值聚类
+
+* 选择k个初始的类中心，类中心是可以随机选择的。
+* 将其中样本分配到最近的类中心，距离定义类似于KNN。
+* 计算每个类的质心，质心可以通过各个类的均值得到。
+* 根据新的质心重新分配样本。
+* 迭代第三，四步，直到质心不在移动。
+* 变量要求是连续变量。
+
+### 如何选择k
+
+如果没有先验的知识，经验建议为$\sqrt{n/2}$，其中n表示样本数量。
+
+## R实战
+
+### 获取数据集
+
+在研究聚类问题的时候，我们一般需要结合业务来选择K，这里为了学习，使用R语言自带的著名的iris数据集来研究聚类问题。iris是法国的国花鸢尾花，我们先加载数据集。
+```{r iris dataset}
+str(iris)
+summary(iris)
+```
+可以看到，前4个变量分别是萼片的长，宽和花瓣的长，宽。最后的一个Species是iris这个花的分类，可以看到一共有三类，每个类有50个样本。在做聚类研究的时候，可以把先这个变量去掉，同时，与KNN类似的，要将变量标准化。
+
+### 整理数据集
+```{r iris nomalization}
+# Nomalize iris data
+iris_n <- as.data.frame(scale(iris[-5]))
+```
+
+###训练数据集
+根据上面的探索，我们已经知道这个数据集可以分成3类了，所以k为3。在一般实际的案例中，k的值要通过业务来判断。
+```{r training a model on the data}
+ iris_clusters <- kmeans(iris_n,3)
+```
+
+###评估模型
+评估聚类的结果是主观的，最终要看聚类的结果是不是对分析实际业务有用。可以先看一下每个cluster的大小和质心。
+```{r Evaluating model performance 1}
+# look at the size of the clusters
+iris_clusters$size
+
+# look at the cluster centers
+iris_clusters$centers
+```
+我们把原始的Species变量求平均，与上面的质心对比一下。
+```{r message=FALSE,warning=FALSE}
+library(dplyr)
+```
+```{r Evaluating model performance 2}
+iris_n$Species <- iris$Species
+iris_by_species <- group_by(iris_n,Species) %>% summarise_each(funs(mean(.)))
+iris_by_species
+```
+对比一下数据可以看出，聚类结果里面的1对应的是versicolor，聚类结果里面的2对应的是virginica，聚类结果里面的3对应的是setosa。当然，在现实的案例中，这些分类及名称通常要我们自己定义。
+
+###模型改进
+
+kmean与KNN的改进方式类似。当然，除了kmean，聚类的方法还有很多，比如层次聚类。
+
+

@@ -1,0 +1,188 @@
+---
+title: "3.Naive Bayes"
+author: "Affluence Tan"
+date: "January 3, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 简单理解朴素贝叶斯
+
+朴素贝叶斯分类来自于贝叶斯定理的简单应用。
+
+### 公式定义
+
+假设某样本有n项特征（Feature），分别为$F_1$、$F_2$、...、$F_n$。现有m个类别（Category），分别为$C_1$、$C_2$、...、$C_m$。贝叶斯分类器就是计算出概率最大的那个分类，也就是求下面这个算式的最大值：
+
+$P(C|F_1F_2...F_n)=\frac{P(F_1F_2...F_n|C)P(C)}{P(F_1F_2...F_n)}$
+
+由于$P(F_1F_2...F_n)$对每一个分类都是相同的，可以省。所以就变成了求下面公式的最大值：
+
+$P(F_1F_2...F_n|C)P(C)$
+
+### 什么是朴素
+
+朴素是假设所有特征都彼此独立，这个假设也是其缺点。因此公式变成了：
+
+$P(F_1F_2...F_n|C)P(C)=P(F_1|C)P(F_2|C)...P(F_n|C)P(C)$
+
+### 拉普拉斯估计
+
+当其中一个特征的似然概率为0时，由于上面公式连乘的原因，后验概率一定为0。这个在通常情况下将没有意义。这时候，可以使用拉普拉斯估计解决，在频率表的每个计数上面加一个比较小的数，通常为1。
+
+### 朴素贝叶斯的变量
+
+运用朴素贝叶斯分类，变量应该都是离散型变量，如果是连续型变量，要先分段。太少的分段会导致信息量减少，重要趋势被掩盖，太多分段导致频率的计数值太小。
+
+## R实战
+
+### 获取数据集
+```{r read dataset}
+library(readr)
+adult <- read_csv("adult.csv",na="?")
+adult$income = as.factor(adult$income)
+str(adult)
+```
+这个是美国成人的人口统计资料，要预测的是income这个变量。
+
+### 探索和准备数据集
+```{r message=FALSE,warning=FALSE }
+library(Hmisc)
+library(ggplot2)
+library(dplyr)
+```
+```{r explore and prapare data-1}
+describe(adult)
+```
+从上面的结果可以看到，数据中有一些缺失值。但是据说朴素贝叶斯对缺失值不敏感。所以先不管。
+最后一个变量是预测变量，分别是大于50K和小于等于50K。并且给出了比例24%和76%。下面切分数据集。
+```{r explore and prapare data-2}
+# create training and test data
+adult_train <- adult[1:21000, ]
+adult_test <- adult[21001:32561, ]
+```
+### 基于数据集训练模型
+```{r message=FALSE,warning=FALSE}
+# load the "e1701" library
+library(e1071)
+adult_classifier <- naiveBayes(income ~ ., data = adult_train,laplace = 1)
+adult_predictions <- predict(adult_classifier, adult_test[,-15])
+```
+查阅了一下e1071的帮助文档，naiveBayes的data变量接受数值型变量和分类型变量。前面提到，朴素贝叶斯只能用于分类型变量，估计函数自动进行了转化。
+
+### 评估模型性能
+```{r warning=FALSE}
+
+# load the "gmodels" library
+library(gmodels)
+library(ROCR)
+
+# Create the cross tabulation of predicted vs. actual
+CrossTable(x = adult_test$income, y = adult_predictions,
+           prop.chisq=FALSE)
+adult_predictions_prob <- predict(adult_classifier, adult_test[,-15],type = "raw")
+pred <- prediction(predictions = adult_predictions_prob[,2] ,labels = adult_test$income)
+perf.auc <- performance(pred,measure = "auc")
+str(perf.auc)
+perf <- performance(pred,measure = "tpr", x.measure = "fpr")
+plot(perf, main = "ROC curve for >50K filter", col ="blue",lwd = 3)
+abline(a=0,b=1,lwd =2,lty =2)
+```
+
+可以看到，模型的准确度为0.721+0.070 = 0.791，也就是说79.1是预测正确了，乍一看不错，但是我们知道，即便没有模型，全部评判为收入不到50k,我们也可以有76%的准确度，模型的效果有限。而且在收入大于50K的人群中，只有28.6%的人被挑选出来了，模型还需要改进。
+
+ROC曲线这里先不解释。
+
+### 提高模型性能
+之前提到，我不太清楚e1071包中的naiveBayes是如何给连续变量转化为类别型的。现在我自己来做这件事，看看能不能提高模型的预测。
+
+先画图考察一下连续变量。
+```{r improve model performance-1}
+# plot histogram 
+varname <- c("age","fnlwgt","education_num","capital_gain","capital_loss","hours_per_week")
+adult_continuous <- adult[varname]
+adult_continuous$income = adult$income
+
+g_age <- ggplot(data = adult_continuous,aes(x=age,fill=income))
+g_age + geom_bar()+facet_grid(income ~ .)
+
+g_fnlwgt <- ggplot(data = adult_continuous,aes(x=fnlwgt,fill=income))
+g_fnlwgt + geom_bar()+facet_grid(income ~ .)
+
+g_education <- ggplot(data = adult_continuous,aes(x=education_num,fill=income))
+g_education + geom_bar()+facet_grid(income ~ .)
+
+g_gain <- ggplot(data = adult_continuous,aes(x=capital_gain,fill=income))
+g_gain + geom_bar()+facet_grid(income ~ .)
+
+g_loss <- ggplot(data = adult_continuous,aes(x=capital_loss,fill=income))
+g_loss + geom_bar()+facet_grid(income ~ .)
+
+g_hours <- ggplot(data = adult_continuous,aes(x=hours_per_week,fill=income))
+g_hours + geom_bar()+facet_grid(income ~ .)
+```
+
+可以看到fnlwgt变量没有什么影响，所以就不做离散化处理了。capital_gain和capital_loss 有太多0，先把0去掉再画一下直方图。
+```{r improve model performance-hist}
+capital_gain_remove0 = filter(.data = adult,capital_gain > 0)
+g_gain <- ggplot(data = capital_gain_remove0,aes(x=capital_gain,fill=income))
+g_gain + geom_bar() + facet_grid(income ~ .)
+
+capital_loss_remove0 = filter(.data = adult,capital_loss > 0)
+g_loss <- ggplot(data = capital_loss_remove0,aes(x=capital_loss,fill=income))
+g_loss + geom_bar() + facet_grid(income ~ .)
+```
+
+现在做类别化处理
+
+```{r improve model performance-2}
+adult_str <- adult
+
+adult_str$age <- as.factor(floor(adult$age / 10))
+
+adult_str$education_num <- as.factor(adult$education_num)
+# capital_gain discretization according to histogram
+capital_gain <- adult$capital_gain
+capital_gain <- ifelse(capital_gain <6000 & capital_gain >0, 1 ,capital_gain)
+capital_gain <- ifelse(capital_gain <30000 & capital_gain >=6000, 2 ,capital_gain)
+capital_gain <- ifelse(capital_gain <60000 & capital_gain >=30000, 3 ,capital_gain)
+capital_gain <- ifelse(capital_gain >=60000, 4 ,capital_gain)
+adult_str$capital_gain <- as.factor(capital_gain)
+# capital_loss discretization according to histogram
+capital_loss <- adult$capital_loss
+capital_loss <- ifelse(capital_loss <1400 & capital_loss >0, 1 ,capital_loss)
+capital_loss <- ifelse(capital_loss <1700 & capital_loss >=1400, 2 ,capital_loss)
+capital_loss <- ifelse(capital_loss <2200 & capital_loss >=1700, 3 ,capital_loss)
+capital_loss <- ifelse(capital_loss <3000 & capital_loss >=2200, 4 ,capital_loss)
+capital_loss <- ifelse(capital_loss >=3000, 5 ,capital_loss)
+adult_str$capital_loss <- as.factor(capital_loss)
+
+adult_str$hours_per_week <- as.factor(floor(adult$hours_per_week / 10))
+```
+
+在capital_gain和capital_loss这两个变量上面我多花了点心思，下面重新拟合模型。
+
+```{r warning=FALSE}
+# create training and test data
+adult_train <- adult_str[1:21000, ]
+adult_test <- adult_str[21001:32561, ]
+# build model
+adult_classifier <- naiveBayes(income ~ ., data = adult_train,laplace = 1)
+adult_predictions <- predict(adult_classifier, adult_test[,-15])
+```
+```{r improve model performance-4}
+# Create the cross tabulation of predicted vs. actual
+CrossTable(x = adult_test$income, y = adult_predictions,
+           prop.chisq=FALSE)
+```
+
+可以看到，模型的预测准确率有了提升(0.703+0.122=0.825),更为关键的是对收入大于50K的人群的预测有提升。精确度和回溯率分别为0.703和0.498。
+
+## 小结
+上面的模型改进也可以看到，朴素贝叶斯模型比较适合于类别变量，不同的连续变量类别化的方法会对模型精度产生比较大的影响。
+
+朴素贝叶斯更加典型的应用场景是在过滤垃圾邮件分类的方面。
+
